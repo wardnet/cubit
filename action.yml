@@ -88,7 +88,9 @@ runs:
       run: |
         set -euo pipefail
         report="${RUNNER_TEMP}/cubit-report.md"
+        dashboard="${RUNNER_TEMP}/cubit-dashboard.html"
         echo "report=${report}" >> "$GITHUB_OUTPUT"
+        echo "dashboard=${dashboard}" >> "$GITHUB_OUTPUT"
 
         # Resolve auto mode from the triggering event.
         mode="$MODE"
@@ -117,6 +119,10 @@ runs:
             --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
             --threshold "$THRESHOLD" "${dash_arg[@]}" \
             --out "$report"
+          # Render the standalone trend dashboard for the run artifact
+          # (best-effort — a missing state branch just yields an empty page).
+          cubit serve --repo . --state-branch "$STATE" --branch "$PR_BASE" \
+            --out "$dashboard" || true
         else
           # record: base the local state branch on origin's tip (if any) so the
           # append's compare-and-swap lands on top of existing history.
@@ -135,7 +141,9 @@ runs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
         name: cubit-report-${{ github.job }}
-        path: ${{ steps.cubit.outputs.report }}
+        path: |
+          ${{ steps.cubit.outputs.report }}
+          ${{ steps.cubit.outputs.dashboard }}
         if-no-files-found: ignore
         retention-days: 14
 

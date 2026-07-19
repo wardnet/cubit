@@ -15,6 +15,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newCompareCmd(),
 		newRecordCmd(),
+		newServeCmd(),
 		newUpdateCmd(),
 		newVersionCmd(),
 	)
