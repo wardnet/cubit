@@ -123,7 +123,7 @@ runs:
             --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
             --threshold "$THRESHOLD" "${dash_arg[@]}" \
             --out "$report"; then
-            printf '## cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
+            printf '## <img src="https://raw.githubusercontent.com/wardnet/cubit/main/assets/cubit-logo.png" alt="" width="16" align="top"> cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
           fi
           # Render the standalone trend dashboard for the run artifact
           # (best-effort — a missing state branch just yields an empty page).
