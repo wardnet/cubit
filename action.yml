@@ -31,6 +31,15 @@ inputs:
       "auto" (default) compares on pull_request and records on a push to the
       default branch. Force with "compare" or "record".
     default: auto
+  paired:
+    description: >
+      "true" runs a paired same-runner comparison on pull_request: bench-command
+      runs on BOTH the PR head and the base commit on the same runner, and the
+      two are compared directly — cancelling machine-to-machine variance that a
+      stored baseline can't. Requires `bench-command` and the caller's checkout
+      to use `fetch-depth: 0` (so the base commit is available). Ignored for
+      record runs.
+    default: "false"
   github-token:
     description: token used to post the PR comment and push the state branch
     default: ${{ github.token }}
@@ -83,8 +92,11 @@ runs:
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         EVENT: ${{ github.event_name }}
         PR_BASE: ${{ github.event.pull_request.base.ref }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        PAIRED: ${{ inputs.paired }}
+        BENCH_COMMAND: ${{ inputs.bench-command }}
       run: |
         set -euo pipefail
         report="${RUNNER_TEMP}/cubit-report.md"
@@ -111,19 +123,53 @@ runs:
         dash_arg=()
         [[ -n "$DASH" ]] && dash_arg=(--dashboard-url "$DASH")
 
+        fallback_report() {
+          printf '## <img src="https://raw.githubusercontent.com/wardnet/cubit/main/assets/cubit-logo.png" alt="" width="16" align="top"> cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
+        }
+
         if [[ "$mode" == "compare" ]]; then
-          # latest:<base> yields an empty baseline (all "new") the first time,
-          # which is fine — cubit does not fail on a missing baseline.
-          #
-          # This is a light gate: a compare error (e.g. no benchmark output was
-          # produced) must NOT fail the consuming workflow. `if ! ...` is exempt
-          # from `set -e`, so we fall back to a short note and keep the job green.
-          if ! cubit compare --repo . --criterion-dir "$DIR" \
-            --baseline-ref "latest:${PR_BASE}" \
-            --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
-            --threshold "$THRESHOLD" "${dash_arg[@]}" \
-            --out "$report"; then
-            printf '## <img src="https://raw.githubusercontent.com/wardnet/cubit/main/assets/cubit-logo.png" alt="" width="16" align="top"> cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
+          # This is a light gate: a compare error must NOT fail the consuming
+          # workflow. `if ! ...` is exempt from `set -e`, so we fall back to a
+          # short note and keep the job green.
+          if [[ "$PAIRED" == "true" && -n "${PR_BASE_SHA:-}" && -n "${BENCH_COMMAND:-}" ]]; then
+            # Paired same-runner comparison. The "Run benchmarks" step already
+            # produced the PR head's criterion in $DIR; snapshot it, then bench the
+            # BASE commit on this same runner and compare the two directly —
+            # cancelling machine-to-machine variance a stored baseline can't.
+            pr_crit="${RUNNER_TEMP}/cubit-crit-pr"
+            base_crit="${RUNNER_TEMP}/cubit-crit-base"
+            rm -rf "$pr_crit" "$base_crit"
+            cp -r "$DIR" "$pr_crit" 2>/dev/null || mkdir -p "$pr_crit"
+
+            orig=$(git rev-parse HEAD)
+            git fetch --no-tags origin "$PR_BASE_SHA" 2>/dev/null || true
+            if git checkout -q --detach "$PR_BASE_SHA" 2>/dev/null; then
+              rm -rf "$DIR"
+              eval "$BENCH_COMMAND" || true
+              cp -r "$DIR" "$base_crit" 2>/dev/null || mkdir -p "$base_crit"
+              git checkout -q --detach "$orig"
+            else
+              echo "cubit: could not check out base ${PR_BASE_SHA} — set the caller's checkout to fetch-depth: 0. Comparing against an empty baseline." >&2
+              mkdir -p "$base_crit"
+            fi
+
+            if ! cubit compare --repo . --criterion-dir "$pr_crit" \
+              --baseline-criterion-dir "$base_crit" \
+              --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
+              --threshold "$THRESHOLD" "${dash_arg[@]}" \
+              --out "$report"; then
+              fallback_report
+            fi
+          else
+            # Single run vs the stored cubit-state baseline. latest:<base> yields
+            # an empty baseline (all "new") the first time, which is fine.
+            if ! cubit compare --repo . --criterion-dir "$DIR" \
+              --baseline-ref "latest:${PR_BASE}" \
+              --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
+              --threshold "$THRESHOLD" "${dash_arg[@]}" \
+              --out "$report"; then
+              fallback_report
+            fi
           fi
           # Render the standalone trend dashboard for the run artifact
           # (best-effort — a missing state branch just yields an empty page).
