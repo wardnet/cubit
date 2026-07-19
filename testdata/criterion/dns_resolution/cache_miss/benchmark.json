@@ -1,0 +1,9 @@
+{
+  "group_id": "dns_resolution",
+  "function_id": "cache_miss",
+  "value_str": null,
+  "throughput": [{ "per_iteration": 800, "unit": "Elements" }],
+  "full_id": "dns_resolution/cache_miss",
+  "directory_name": "dns_resolution/cache_miss",
+  "title": "dns_resolution/cache_miss"
+}

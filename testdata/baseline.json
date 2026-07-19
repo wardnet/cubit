@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "tool": "criterion",
+  "commit": "0000000000000000000000000000000000000000",
+  "branch": "main",
+  "timestamp": "2026-07-18T00:00:00Z",
+  "measurements": [
+    {
+      "id": "dns_cache/get",
+      "unit": "ns",
+      "value": 48.0,
+      "lower": 46.9,
+      "upper": 49.2
+    },
+    {
+      "id": "dns_resolution/cache_miss",
+      "unit": "ns",
+      "value": 1000000.0,
+      "lower": 985000.0,
+      "upper": 1015000.0,
+      "throughput": 800
+    }
+  ]
+}

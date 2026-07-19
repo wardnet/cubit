@@ -1,0 +1,9 @@
+{
+  "group_id": "dns_cache",
+  "function_id": "get",
+  "value_str": null,
+  "throughput": [{ "per_iteration": 0, "unit": "Elements" }],
+  "full_id": "dns_cache/get",
+  "directory_name": "dns_cache/get",
+  "title": "dns_cache/get"
+}

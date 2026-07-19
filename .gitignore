@@ -1,0 +1,12 @@
+# Build output
+/cubit
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Editor / OS
+.DS_Store
