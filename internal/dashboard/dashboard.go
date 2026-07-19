@@ -50,23 +50,13 @@ type Data struct {
 // optionally filtered to one branch, with each benchmark's points ordered
 // oldest-first (the manifest order).
 func Build(store *gitstore.Store, branch string, now time.Time) (Data, error) {
-	metas, err := store.Index()
+	runs, err := store.History(branch)
 	if err != nil {
 		return Data{}, err
 	}
 	byID := map[string]*benchSeries{}
 	var ids []string
-	for _, m := range metas {
-		if branch != "" && m.Branch != branch {
-			continue
-		}
-		run, ok, err := store.Read(m.Commit)
-		if err != nil {
-			return Data{}, err
-		}
-		if !ok {
-			continue
-		}
+	for _, run := range runs {
 		for _, ms := range run.Measurements {
 			s, exists := byID[ms.ID]
 			if !exists {
@@ -75,9 +65,9 @@ func Build(store *gitstore.Store, branch string, now time.Time) (Data, error) {
 				ids = append(ids, ms.ID)
 			}
 			s.Points = append(s.Points, point{
-				Commit:      m.Commit,
-				ShortCommit: short(m.Commit),
-				Timestamp:   m.Timestamp,
+				Commit:      run.Commit,
+				ShortCommit: short(run.Commit),
+				Timestamp:   run.Timestamp,
 				Value:       ms.Value,
 				Lower:       ms.Lower,
 				Upper:       ms.Upper,

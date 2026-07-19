@@ -114,11 +114,17 @@ runs:
         if [[ "$mode" == "compare" ]]; then
           # latest:<base> yields an empty baseline (all "new") the first time,
           # which is fine — cubit does not fail on a missing baseline.
-          cubit compare --repo . --criterion-dir "$DIR" \
+          #
+          # This is a light gate: a compare error (e.g. no benchmark output was
+          # produced) must NOT fail the consuming workflow. `if ! ...` is exempt
+          # from `set -e`, so we fall back to a short note and keep the job green.
+          if ! cubit compare --repo . --criterion-dir "$DIR" \
             --baseline-ref "latest:${PR_BASE}" \
             --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
             --threshold "$THRESHOLD" "${dash_arg[@]}" \
-            --out "$report"
+            --out "$report"; then
+            printf '## cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
+          fi
           # Render the standalone trend dashboard for the run artifact
           # (best-effort — a missing state branch just yields an empty page).
           cubit serve --repo . --state-branch "$STATE" --branch "$PR_BASE" \
@@ -131,9 +137,17 @@ runs:
           fi
           git config user.name "cubit"
           git config user.email "cubit@users.noreply.github.com"
-          cubit record --persist --repo . --criterion-dir "$DIR" \
-            --commit "$GITHUB_SHA" --branch "$DEFAULT_BRANCH" --state-branch "$STATE"
-          git push origin "$STATE"
+          # Recording the baseline is best-effort: a failure to record or push
+          # (e.g. the state branch diverged, or a concurrent update won the CAS)
+          # must not fail the workflow — it just means the next PR compares
+          # against a slightly older baseline. Surface it on stderr instead.
+          if cubit record --persist --repo . --criterion-dir "$DIR" \
+            --commit "$GITHUB_SHA" --branch "$DEFAULT_BRANCH" --state-branch "$STATE"; then
+            git push origin "$STATE" \
+              || echo "cubit: push of ${STATE} failed (diverged or concurrent update?) — baseline not updated" >&2
+          else
+            echo "cubit: recording the baseline failed — baseline not updated" >&2
+          fi
         fi
 
     - name: Upload report artifact
