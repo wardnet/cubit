@@ -13,24 +13,27 @@ import (
 
 func newCompareCmd() *cobra.Command {
 	var (
-		criterionDir string
-		baselinePath string
-		baselineRef  string
-		repo         string
-		stateBranch  string
-		commit       string
-		branch       string
-		threshold    float64
-		dashboardURL string
-		out          string
+		criterionDir    string
+		baselinePath    string
+		baselineCritDir string
+		baselineRef     string
+		repo            string
+		stateBranch     string
+		commit          string
+		branch          string
+		threshold       float64
+		dashboardURL    string
+		out             string
 	)
 	cmd := &cobra.Command{
 		Use:   "compare",
 		Short: "Compare a benchmark run against a baseline and render a report",
 		Long: "Ingests a criterion output directory, diffs it against a baseline, and " +
 			"writes a Markdown report suitable for a PR comment. The baseline comes " +
-			"from --baseline (a file) or --baseline-ref (a record on the cubit-state " +
-			"branch). Advisory only — it never fails the build.",
+			"from --baseline (a file), --baseline-criterion-dir (a second criterion " +
+			"output, e.g. a paired same-runner run of the base commit), or " +
+			"--baseline-ref (a record on the cubit-state branch). Advisory only — it " +
+			"never fails the build.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -39,7 +42,7 @@ func newCompareCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			baseline, err := resolveBaseline(baselinePath, baselineRef, repo, stateBranch)
+			baseline, err := resolveBaseline(baselinePath, baselineCritDir, baselineRef, repo, stateBranch)
 			if err != nil {
 				return err
 			}
@@ -50,7 +53,8 @@ func newCompareCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&criterionDir, "criterion-dir", "target/criterion", "criterion output directory to ingest")
-	f.StringVar(&baselinePath, "baseline", "", "baseline run JSON file (takes precedence over --baseline-ref)")
+	f.StringVar(&baselinePath, "baseline", "", "baseline run JSON file (highest precedence)")
+	f.StringVar(&baselineCritDir, "baseline-criterion-dir", "", "criterion output dir to use as the baseline (a paired same-runner run of the base commit); takes precedence over --baseline-ref")
 	f.StringVar(&baselineRef, "baseline-ref", "", "baseline from the cubit-state branch: a commit SHA, \"latest\", or \"latest:<branch>\"")
 	f.StringVar(&repo, "repo", ".", "git repository holding the cubit-state branch")
 	f.StringVar(&stateBranch, "state-branch", gitstore.DefaultBranch, "branch storing recorded runs")
@@ -62,12 +66,24 @@ func newCompareCmd() *cobra.Command {
 	return cmd
 }
 
-// resolveBaseline loads the baseline run from an explicit file, or from a
-// reference on the cubit-state branch, or returns an empty run (everything
-// reported as new) when neither is given or the reference is not found yet.
-func resolveBaseline(path, ref, repo, stateBranch string) (model.Run, error) {
+// resolveBaseline loads the baseline run from (in precedence order) an explicit
+// file, a second criterion output directory (the paired same-runner base run),
+// or a reference on the cubit-state branch. It returns an empty run (everything
+// reported as new) when none is given, or when the paired baseline dir produced
+// no benchmarks — a base bench that failed to run must degrade to "all new"
+// rather than erroring, so the comment still posts.
+func resolveBaseline(path, critDir, ref, repo, stateBranch string) (model.Run, error) {
 	if path != "" {
 		return loadRun(path)
+	}
+	if critDir != "" {
+		run, err := buildRun(critDir, "", "", "")
+		if err != nil {
+			// No benchmarks in the base run (e.g. the base bench errored) — treat
+			// as no baseline rather than failing the comparison.
+			return model.Run{}, nil
+		}
+		return run, nil
 	}
 	if ref == "" {
 		return model.Run{}, nil
