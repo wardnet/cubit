@@ -1,3 +1,5 @@
+<img src="assets/cubit-logo.png" alt="cubit" width="64" align="right">
+
 # cubit
 
 Continuous benchmarking and performance-regression tracking.

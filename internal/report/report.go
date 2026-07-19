@@ -18,7 +18,11 @@ import (
 func Markdown(deltas []model.Delta, cur model.Run, thresholdPct float64, dashboardURL string) string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "## 📐 cubit — performance\n\n")
+	// The logo is an absolute raw URL, not a repo-relative path: this comment is
+	// posted into the *consuming* repo's PR, where "assets/..." would resolve
+	// against that repo and 404. Pinned to cubit's default branch (not a release
+	// tag) so the image keeps resolving for consumers on an older cubit version.
+	fmt.Fprintf(&b, "## <img src=\"https://raw.githubusercontent.com/wardnet/cubit/main/assets/cubit-logo.png\" alt=\"\" width=\"16\" align=\"top\"> cubit — performance\n\n")
 	if cur.Commit != "" {
 		fmt.Fprintf(&b, "Commit `%s`", shortSHA(cur.Commit))
 		if cur.Branch != "" {

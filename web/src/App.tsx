@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Dashboard } from "./types";
 import { loadData } from "./data";
 import { LineChart } from "./LineChart";
+import logo from "./assets/cubit-logo.png";
 
 export function App() {
   const [data, setData] = useState<Dashboard | null | undefined>(undefined);
@@ -28,7 +29,9 @@ export function App() {
   return (
     <main className="wrap">
       <header>
-        <h1>cubit — performance</h1>
+        <h1>
+          <img className="logo" src={logo} alt="" /> cubit — performance
+        </h1>
         <p className="muted">
           {data.benchmarks.length} benchmarks · branch <code>{data.branch}</code> ·
           generated {new Date(data.generatedAt).toISOString().replace("T", " ").slice(0, 16)}
