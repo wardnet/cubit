@@ -38,3 +38,41 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
+
+  dashboard:
+    # Guard against drift between the web/ source and the vendored bundle that
+    # the Go binary embeds (internal/dashboard/assets/index.html). Rebuild the
+    # dashboard from source and fail if the committed bundle differs — the build
+    # is byte-reproducible (deps pinned via yarn.lock), so a mismatch means
+    # someone edited web/ without re-vendoring.
+    name: dashboard bundle up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "26"
+
+      - name: Enable corepack (pinned yarn from packageManager)
+        run: npm install -g corepack@latest && corepack enable
+
+      - name: Install dashboard deps
+        working-directory: web
+        run: yarn install --immutable
+
+      - name: Build dashboard
+        working-directory: web
+        run: yarn build
+
+      - name: Verify vendored bundle matches source
+        run: |
+          cp web/dist/index.html internal/dashboard/assets/index.html
+          if ! git diff --quiet -- internal/dashboard/assets/index.html; then
+            echo "::error file=internal/dashboard/assets/index.html::vendored dashboard bundle is stale — rebuild and commit it"
+            echo "Fix locally with:" >&2
+            echo "  yarn --cwd web build && cp web/dist/index.html internal/dashboard/assets/index.html" >&2
+            git --no-pager diff --stat -- internal/dashboard/assets/index.html
+            exit 1
+          fi
+          echo "dashboard bundle matches source ✓"
