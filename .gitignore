@@ -1,0 +1,18 @@
+# Build output
+/cubit
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Web dashboard build (the built asset is vendored at
+# internal/dashboard/assets/index.html; the raw dist/ and deps are not tracked)
+/web/node_modules/
+/web/dist/
+/web/.yarn/
+
+# Editor / OS
+.DS_Store

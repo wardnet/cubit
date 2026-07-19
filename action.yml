@@ -1,0 +1,170 @@
+name: cubit
+description: >
+  Run benchmarks through cubit — compare a PR against the recorded baseline and
+  post a non-blocking summary comment, or record a new baseline on the default
+  branch. Never fails the build; the comment + dashboard inform a human.
+
+inputs:
+  version:
+    description: cubit version to install (omit or "latest" for the latest release)
+    default: latest
+  criterion-dir:
+    description: criterion output directory to ingest (relative to the repo root)
+    default: target/criterion
+  bench-command:
+    description: >
+      optional shell command that produces the criterion output (e.g.
+      "cargo bench --bench dns_components"). Omit if an earlier step already ran
+      the benchmarks.
+    default: ""
+  state-branch:
+    description: orphan branch cubit stores baselines on
+    default: cubit-state
+  threshold:
+    description: flag benchmarks slower than baseline by more than this percent
+    default: "15"
+  dashboard-url:
+    description: trend-dashboard URL to link from the PR comment
+    default: ""
+  mode:
+    description: >
+      "auto" (default) compares on pull_request and records on a push to the
+      default branch. Force with "compare" or "record".
+    default: auto
+  github-token:
+    description: token used to post the PR comment and push the state branch
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install cubit
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        # install.sh is fetched from the latest release; CUBIT_VERSION pins the
+        # binary it installs and install.sh verifies its SHA-256 before use.
+        if [[ "${VERSION}" != "latest" ]]; then
+          export CUBIT_VERSION="${VERSION}"
+        fi
+        export CUBIT_INSTALL_DIR="${RUNNER_TEMP}/cubit-bin"
+        curl -fsSL -o "${RUNNER_TEMP}/cubit-install.sh" https://github.com/wardnet/cubit/releases/latest/download/install.sh
+        sh "${RUNNER_TEMP}/cubit-install.sh"
+        echo "${CUBIT_INSTALL_DIR}" >> "$GITHUB_PATH"
+
+    - name: Run benchmarks
+      if: inputs.bench-command != ''
+      shell: bash
+      env:
+        BENCH_COMMAND: ${{ inputs.bench-command }}
+      run: |
+        eval "$BENCH_COMMAND"
+
+    - name: Fetch state branch
+      shell: bash
+      env:
+        STATE: ${{ inputs.state-branch }}
+      run: |
+        # Best-effort: the branch may not exist yet (first ever run). A present
+        # remote-tracking ref is what cubit reads baselines from, and what a
+        # record run bases its append on.
+        git fetch origin "+refs/heads/${STATE}:refs/remotes/origin/${STATE}" 2>/dev/null || true
+
+    - name: cubit
+      id: cubit
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        DIR: ${{ inputs.criterion-dir }}
+        STATE: ${{ inputs.state-branch }}
+        THRESHOLD: ${{ inputs.threshold }}
+        DASH: ${{ inputs.dashboard-url }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.ref }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      run: |
+        set -euo pipefail
+        report="${RUNNER_TEMP}/cubit-report.md"
+        dashboard="${RUNNER_TEMP}/cubit-dashboard.html"
+        echo "report=${report}" >> "$GITHUB_OUTPUT"
+        echo "dashboard=${dashboard}" >> "$GITHUB_OUTPUT"
+
+        # Resolve auto mode from the triggering event.
+        mode="$MODE"
+        if [[ "$mode" == "auto" ]]; then
+          if [[ "$EVENT" == "pull_request" ]]; then
+            mode="compare"
+          elif [[ "$GITHUB_REF_NAME" == "$DEFAULT_BRANCH" ]]; then
+            mode="record"
+          else
+            echo "cubit: nothing to do (push to non-default branch $GITHUB_REF_NAME)"
+            echo "did-run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+        echo "did-run=true" >> "$GITHUB_OUTPUT"
+        echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+
+        dash_arg=()
+        [[ -n "$DASH" ]] && dash_arg=(--dashboard-url "$DASH")
+
+        if [[ "$mode" == "compare" ]]; then
+          # latest:<base> yields an empty baseline (all "new") the first time,
+          # which is fine — cubit does not fail on a missing baseline.
+          #
+          # This is a light gate: a compare error (e.g. no benchmark output was
+          # produced) must NOT fail the consuming workflow. `if ! ...` is exempt
+          # from `set -e`, so we fall back to a short note and keep the job green.
+          if ! cubit compare --repo . --criterion-dir "$DIR" \
+            --baseline-ref "latest:${PR_BASE}" \
+            --commit "$PR_HEAD_SHA" --branch "$PR_HEAD_REF" \
+            --threshold "$THRESHOLD" "${dash_arg[@]}" \
+            --out "$report"; then
+            printf '## cubit — performance\n\n⚠️ cubit could not produce a report — no benchmark output was found at `%s` (did the benchmark step run?).\n' "$DIR" > "$report"
+          fi
+          # Render the standalone trend dashboard for the run artifact
+          # (best-effort — a missing state branch just yields an empty page).
+          cubit serve --repo . --state-branch "$STATE" --branch "$PR_BASE" \
+            --out "$dashboard" || true
+        else
+          # record: base the local state branch on origin's tip (if any) so the
+          # append's compare-and-swap lands on top of existing history.
+          if git rev-parse --verify --quiet "refs/remotes/origin/${STATE}" >/dev/null; then
+            git branch -f "$STATE" "refs/remotes/origin/${STATE}"
+          fi
+          git config user.name "cubit"
+          git config user.email "cubit@users.noreply.github.com"
+          # Recording the baseline is best-effort: a failure to record or push
+          # (e.g. the state branch diverged, or a concurrent update won the CAS)
+          # must not fail the workflow — it just means the next PR compares
+          # against a slightly older baseline. Surface it on stderr instead.
+          if cubit record --persist --repo . --criterion-dir "$DIR" \
+            --commit "$GITHUB_SHA" --branch "$DEFAULT_BRANCH" --state-branch "$STATE"; then
+            git push origin "$STATE" \
+              || echo "cubit: push of ${STATE} failed (diverged or concurrent update?) — baseline not updated" >&2
+          else
+            echo "cubit: recording the baseline failed — baseline not updated" >&2
+          fi
+        fi
+
+    - name: Upload report artifact
+      if: always() && steps.cubit.outputs.mode == 'compare'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: cubit-report-${{ github.job }}
+        path: |
+          ${{ steps.cubit.outputs.report }}
+          ${{ steps.cubit.outputs.dashboard }}
+        if-no-files-found: ignore
+        retention-days: 14
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request' && steps.cubit.outputs.mode == 'compare'
+      uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+      with:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        header: cubit
+        path: ${{ steps.cubit.outputs.report }}
