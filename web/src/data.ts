@@ -24,6 +24,16 @@ export async function loadData(): Promise<Dashboard | null> {
   return null;
 }
 
+// groupKey returns a benchmark's group: the leading id segment before the first
+// "/". criterion nests ids as "group/function/value", so this is the
+// benchmark_group it belongs to — the axis the dashboard folds a large suite
+// along. A top-level bench with no "/" has no group and yields "" (an
+// "ungrouped" section). Mirrors model.GroupKey on the Go side.
+export function groupKey(id: string): string {
+  const i = id.indexOf("/");
+  return i >= 0 ? id.slice(0, i) : "";
+}
+
 // formatValue renders a nanosecond metric with an adaptive unit, matching the
 // PR-comment formatter so the dashboard and comment read the same.
 export function formatValue(ns: number): string {

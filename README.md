@@ -17,7 +17,10 @@ built for the [wardnet](https://github.com/wardnet) daemon's benchmarks.
 1. Your CI runs the benchmarks (today: Rust [criterion](https://github.com/bheisler/criterion.rs)).
 2. `cubit compare` ingests the output, diffs it against the baseline recorded on
    the `cubit-state` branch, and posts a Markdown table (baseline vs current, Δ%)
-   plus a link to a trend dashboard.
+   plus a link to a trend dashboard. Larger suites are folded into collapsible
+   sections by benchmark group (criterion's `group/function/value` prefix), so
+   the comment and dashboard stay readable as the suite grows — sections holding
+   a regression open by default.
 3. On the default branch, `cubit record` updates the baseline — keyed by commit
    SHA — for the next PR to compare against.
 

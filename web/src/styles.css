@@ -69,6 +69,33 @@ code {
   gap: 20px;
 }
 
+.group {
+  margin-bottom: 28px;
+}
+
+.group > summary {
+  cursor: pointer;
+  padding: 6px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.group > summary::-webkit-details-marker {
+  color: var(--muted);
+}
+
+.group-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.group-count {
+  color: var(--muted);
+  margin-left: 8px;
+  font-size: 13px;
+}
+
 .chart {
   margin: 0;
   padding: 12px 12px 4px;
