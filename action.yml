@@ -26,6 +26,37 @@ inputs:
   dashboard-url:
     description: trend-dashboard URL to link from the PR comment
     default: ""
+  pages-branch:
+    description: >
+      optional branch to publish each PR's dashboard to (e.g. "gh-pages"),
+      under cubit/pr-<number>/index.html. When set (and the push succeeds),
+      the PR comment links the hosted dashboard instead of the artifact
+      download. Requires GitHub Pages to serve from that branch; fork PRs
+      fall back to the artifact link because their token cannot push.
+      With pages-repo, selects the branch of the host repo to publish to
+      (defaults to the host repo's default branch).
+    default: ""
+  pages-repo:
+    description: >
+      optional owner/repo of a separate repository that hosts the dashboards
+      (a central Pages hub, e.g. "wardnet/perf-reports"). Dashboards land
+      under <source-repo>/pr-<number>/index.html there, so one hub can serve
+      many repos. Requires pages-token, because the workflow's own
+      github.token cannot push to another repository.
+    default: ""
+  pages-token:
+    description: >
+      token with contents write access to pages-repo (a fine-grained PAT or
+      GitHub App token), usually passed from a secret. Secrets are absent on
+      fork PRs, which then fall back to the artifact link. Do NOT expose this
+      via pull_request_target workflows.
+    default: ""
+  pages-url:
+    description: >
+      base URL the published dashboards are served from. Defaults to
+      https://<owner>.github.io/<repo> of the repo they are pushed to —
+      override for custom domains or user/organization sites.
+    default: ""
   mode:
     description: >
       "auto" (default) compares on pull_request and records on a push to the
@@ -196,7 +227,124 @@ runs:
           fi
         fi
 
+    - name: Publish dashboard to Pages
+      id: pages
+      if: github.event_name == 'pull_request' && steps.cubit.outputs.mode == 'compare' && (inputs.pages-branch != '' || inputs.pages-repo != '')
+      shell: bash
+      env:
+        PAGES: ${{ inputs.pages-branch }}
+        PAGES_REPO: ${{ inputs.pages-repo }}
+        PAGES_TOKEN: ${{ inputs.pages-token }}
+        PAGES_URL: ${{ inputs.pages-url }}
+        DASHBOARD: ${{ steps.cubit.outputs.dashboard }}
+        PR: ${{ github.event.pull_request.number }}
+        OWNER: ${{ github.repository_owner }}
+        REPO: ${{ github.event.repository.name }}
+      run: |
+        set -euo pipefail
+        # Best-effort: publishing is a convenience link, never a gate. Fork PRs
+        # (no secrets / read-only token) and races with concurrent pushes fall
+        # through to the artifact link appended in the next steps.
+        if [[ ! -f "$DASHBOARD" ]]; then
+          echo "cubit: no dashboard to publish" >&2
+          exit 0
+        fi
+
+        # <owner>.github.io repos serve from the root domain; everything else
+        # is a project site under /<repo>/.
+        pages_base() { # $1 = owner, $2 = repo
+          local owner_lc="${1,,}" repo_lc="${2,,}"
+          if [[ "$repo_lc" == "${owner_lc}.github.io" ]]; then
+            printf 'https://%s' "$repo_lc"
+          else
+            printf 'https://%s.github.io/%s' "$owner_lc" "$2"
+          fi
+        }
+
+        if [[ -n "$PAGES_REPO" ]]; then
+          # Publish to a separate host repo (central Pages hub). The workflow's
+          # own github.token cannot push across repos, so this needs pages-token.
+          if [[ -z "$PAGES_TOKEN" ]]; then
+            echo "cubit: pages-repo is set but pages-token is empty (fork PR, or the secret was not passed) — the comment will link the artifact instead" >&2
+            exit 0
+          fi
+          remote="https://x-access-token:${PAGES_TOKEN}@github.com/${PAGES_REPO}.git"
+          clone="${RUNNER_TEMP}/cubit-pages"
+          rm -rf "$clone"
+          cloned=true
+          if [[ -n "$PAGES" ]]; then
+            if ! git clone -q --depth 1 --branch "$PAGES" "$remote" "$clone" 2>/dev/null; then
+              # The branch may not exist in the hub yet — start it empty.
+              if git clone -q --depth 1 "$remote" "$clone" 2>/dev/null; then
+                git -C "$clone" checkout -q --orphan "$PAGES"
+                git -C "$clone" rm -rfq . 2>/dev/null || true
+              else
+                cloned=false
+              fi
+            fi
+          else
+            git clone -q --depth 1 "$remote" "$clone" 2>/dev/null \
+              && PAGES=$(git -C "$clone" rev-parse --abbrev-ref HEAD) \
+              || cloned=false
+          fi
+          if [[ "$cloned" != true ]]; then
+            echo "cubit: could not clone ${PAGES_REPO} — check that pages-token has contents write access to it" >&2
+            exit 0
+          fi
+          mkdir -p "${clone}/${REPO}/pr-${PR}"
+          cp "$DASHBOARD" "${clone}/${REPO}/pr-${PR}/index.html"
+          git -C "$clone" config user.name "cubit"
+          git -C "$clone" config user.email "cubit@users.noreply.github.com"
+          git -C "$clone" add -A
+          git -C "$clone" diff --cached --quiet \
+            || git -C "$clone" commit -qm "cubit: ${REPO} dashboard for PR #${PR}"
+          # A shared hub makes concurrent publishes (other PRs, other repos)
+          # likely, so replay our commit on the moved tip and retry.
+          pushed=false
+          for _ in 1 2 3; do
+            if git -C "$clone" push -q origin "HEAD:refs/heads/${PAGES}" 2>/dev/null; then
+              pushed=true
+              break
+            fi
+            git -C "$clone" fetch -q origin "refs/heads/${PAGES}" 2>/dev/null || true
+            git -C "$clone" rebase -q FETCH_HEAD 2>/dev/null || true
+          done
+          rm -rf "$clone"
+          if [[ "$pushed" == true ]]; then
+            base="${PAGES_URL:-$(pages_base "${PAGES_REPO%%/*}" "${PAGES_REPO#*/}")}"
+            echo "url=${base%/}/${REPO}/pr-${PR}/" >> "$GITHUB_OUTPUT"
+          else
+            echo "cubit: could not push to ${PAGES_REPO} — the comment will link the artifact instead" >&2
+          fi
+          exit 0
+        fi
+
+        wt="${RUNNER_TEMP}/cubit-pages"
+        rm -rf "$wt"
+        git fetch origin "+refs/heads/${PAGES}:refs/remotes/origin/${PAGES}" 2>/dev/null || true
+        if git rev-parse --verify --quiet "refs/remotes/origin/${PAGES}" >/dev/null; then
+          git worktree add --detach "$wt" "refs/remotes/origin/${PAGES}"
+        else
+          git worktree add --detach "$wt"
+          git -C "$wt" checkout -q --orphan "$PAGES"
+          git -C "$wt" rm -rfq . 2>/dev/null || true
+        fi
+        mkdir -p "$wt/cubit/pr-${PR}"
+        cp "$DASHBOARD" "$wt/cubit/pr-${PR}/index.html"
+        git -C "$wt" config user.name "cubit"
+        git -C "$wt" config user.email "cubit@users.noreply.github.com"
+        git -C "$wt" add -A
+        git -C "$wt" diff --cached --quiet || git -C "$wt" commit -qm "cubit: dashboard for PR #${PR}"
+        if git -C "$wt" push origin "HEAD:refs/heads/${PAGES}"; then
+          base="${PAGES_URL:-$(pages_base "$OWNER" "$REPO")}"
+          echo "url=${base%/}/cubit/pr-${PR}/" >> "$GITHUB_OUTPUT"
+        else
+          echo "cubit: could not push ${PAGES} (fork PR or read-only token?) — the comment will link the artifact instead" >&2
+        fi
+        git worktree remove --force "$wt" 2>/dev/null || true
+
     - name: Upload report artifact
+      id: artifact
       if: always() && steps.cubit.outputs.mode == 'compare'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
@@ -206,6 +354,29 @@ runs:
           ${{ steps.cubit.outputs.dashboard }}
         if-no-files-found: ignore
         retention-days: 14
+
+    - name: Link dashboard and write job summary
+      if: always() && steps.cubit.outputs.mode == 'compare'
+      shell: bash
+      env:
+        REPORT: ${{ steps.cubit.outputs.report }}
+        DASHBOARD: ${{ steps.cubit.outputs.dashboard }}
+        PAGES_LINK: ${{ steps.pages.outputs.url }}
+        ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+      run: |
+        set -euo pipefail
+        [[ -f "$REPORT" ]] || exit 0
+        # Give the comment a one-click path to the dashboard: the hosted Pages
+        # copy when published, otherwise a direct artifact download (GitHub
+        # serves artifacts only as zips, so that link is download-and-open).
+        if [[ -n "${PAGES_LINK:-}" ]]; then
+          printf '\n📊 [View this run'\''s dashboard](%s)\n' "$PAGES_LINK" >> "$REPORT"
+        elif [[ -n "${ARTIFACT_URL:-}" && -f "$DASHBOARD" ]]; then
+          printf '\n📊 [Download this run'\''s dashboard](%s) (zip — open `cubit-dashboard.html`)\n' "$ARTIFACT_URL" >> "$REPORT"
+        fi
+        # Mirror the report on the run page so it is one click from the PR's
+        # checks, with no artifact download at all.
+        cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Post PR comment
       if: github.event_name == 'pull_request' && steps.cubit.outputs.mode == 'compare'
