@@ -7,7 +7,10 @@
 // the numbers.
 package model
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // SchemaVersion is bumped whenever the on-disk [Run] shape changes
 // incompatibly, so the ingest/read layers can refuse or migrate old records.
@@ -81,4 +84,16 @@ func Compare(current, baseline Run, thresholdPct float64) []Delta {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// GroupKey returns a benchmark's group: the leading id segment before the first
+// "/". criterion nests ids as "group/function/value", so this is the
+// benchmark_group the bench was declared in — the natural axis for folding a
+// large suite into sections. A top-level bench_function has no "/" and no
+// group, so its key is "" (rendered as an "ungrouped" bucket downstream).
+func GroupKey(id string) string {
+	if i := strings.IndexByte(id, '/'); i >= 0 {
+		return id[:i]
+	}
+	return ""
 }
