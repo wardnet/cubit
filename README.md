@@ -22,9 +22,12 @@ built for the [wardnet](https://github.com/wardnet) daemon's benchmarks.
    SHA — for the next PR to compare against.
 
 Baselines and history live in an orphan git branch (no database, no hosted
-service). The dashboard renders from that branch as a CI artifact and via a local
-`cubit serve`, so it works on private repos and repos whose GitHub Pages slot is
-already taken.
+service). The PR comment links straight to the run's dashboard: set the
+action's `pages-branch` input to publish it to GitHub Pages for a hosted,
+clickable page, or leave it unset and the comment links the report artifact
+directly. The report is also mirrored to the job summary on the run page, and
+`cubit serve` renders the dashboard locally — so everything still works on
+private repos and repos whose GitHub Pages slot is already taken.
 
 ## Commands
 
