@@ -7,8 +7,10 @@ const PAD = { top: 16, right: 16, bottom: 28, left: 64 };
 
 // LineChart draws one benchmark's history: a median line with the
 // confidence-interval band shaded behind it, so a reviewer can see whether a
-// new point sits inside the run-to-run noise or steps out of it.
-export function LineChart({ series }: { series: BenchSeries }) {
+// new point sits inside the run-to-run noise or steps out of it. label overrides
+// the visible caption (the grouped view passes the id with its group prefix
+// stripped); the full id still drives the accessible label.
+export function LineChart({ series, label }: { series: BenchSeries; label?: string }) {
   const pts = series.points;
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
@@ -44,7 +46,7 @@ export function LineChart({ series }: { series: BenchSeries }) {
   return (
     <figure className="chart">
       <figcaption>
-        <span className="chart-id">{series.id}</span>
+        <span className="chart-id">{label ?? series.id}</span>
         <span className="chart-last">{formatValue(last.value)}</span>
       </figcaption>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${series.id} over time`}>
