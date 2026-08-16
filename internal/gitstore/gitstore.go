@@ -320,6 +320,9 @@ func (s *Store) History(branchFilter string) ([]model.Run, error) {
 // showFile returns the bytes of repoPath at ref. ok is false (no error) when
 // the path does not exist at that ref.
 func (s *Store) showFile(ref, repoPath string) ([]byte, bool, error) {
+	// The binary is the literal "git" and the arguments are passed as a slice,
+	// so no shell parses them and a ref or path cannot become a second command.
+	// #nosec G204 -- fixed binary, argv passed directly, no shell involved.
 	cmd := exec.Command("git", "-C", s.RepoDir, "show", ref+":"+repoPath)
 	// Force a stable C locale: the missing-path detection below matches git's
 	// English error text, which localized output (LANG/LC_ALL) would otherwise
@@ -345,6 +348,9 @@ func (s *Store) git(stdin []byte, args ...string) (string, error) {
 }
 
 func (s *Store) gitEnv(env []string, stdin []byte, args ...string) (string, error) {
+	// Fixed binary, argv as a slice, no shell. Running git is what a git-backed
+	// store does.
+	// #nosec G204 -- fixed binary, argv passed directly, no shell involved.
 	cmd := exec.Command("git", append([]string{"-C", s.RepoDir}, args...)...)
 	base := env
 	if base == nil {
