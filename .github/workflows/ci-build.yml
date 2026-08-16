@@ -1,46 +1,17 @@
-name: CI
+# ci-build — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# The vendored-bundle consistency check, moved from ci.yml verbatim.
+name: ci-build
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  build-test:
-    name: build, vet & test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          # From go.mod's toolchain line, not restated here: three
-          # copies of a version number is how a stale one survives.
-          go-version-file: go.mod
-          cache: true
-
-      - name: go build
-        run: go build ./...
-
-      - name: go vet
-        run: go vet ./...
-
-      - name: go test
-        run: go test -race ./...
-
-      - name: gofmt
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "these files need gofmt:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
-
   dashboard:
     # Guard against drift between the web/ source and the vendored bundle that
     # the Go binary embeds (internal/dashboard/assets/index.html). Rebuild the

@@ -1,0 +1,58 @@
+# ci-test — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# The Go suite, moved from ci.yml verbatim, plus a coverage profile: this
+# repository had none, and gt's bulwark stage gates on one.
+name: ci-test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build, vet & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          # From go.mod's toolchain line, not restated here: three
+          # copies of a version number is how a stale one survives.
+          go-version-file: go.mod
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      # -coverprofile so the bulwark stage has a report to read instead of
+      # running the suite a second time. The artifact below is what it reads.
+      - name: go test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      # Named `gt-coverage` because that is the name gt's bulwark stage
+      # downloads. Renaming it silently sends bulwark back to running the suite
+      # itself, and .bulwark.yml here declares `report`, so it would instead
+      # exit on a report nothing produced.
+      - name: Upload coverage for the bulwark stage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gt-coverage
+          path: coverage.out
+          if-no-files-found: error

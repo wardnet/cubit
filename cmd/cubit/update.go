@@ -178,7 +178,10 @@ func downloadBinary(ctx context.Context, url, dst string) error {
 			resp.StatusCode, url, runtime.GOOS, runtime.GOARCH)
 	}
 
-	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755) // #nosec G304 -- dst is our own staged temp path, not user input
+	// 0755 because this is the cubit binary being staged and it has to be
+	// executable; an executable that is not executable is not a binary.
+	// #nosec G302,G304 -- dst is our own staged temp path, not user input
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
