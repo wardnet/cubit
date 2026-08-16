@@ -10,7 +10,7 @@
 # never touches them again. Branch protection needs exactly one check, ci-gate,
 # which waits on all of them.
 
-gt_version: v1.0.0
+gt_version: 1.0.0
 dependabot:
   - ecosystem: github-actions
     directory: /
@@ -20,7 +20,7 @@ dependabot:
     directory: /web
     note: |
       The dashboard bundle at internal/dashboard/assets/index.html is vendored,
-      and ci.yml rebuilds it and fails if the committed copy differs. Dependabot
+      and ci-build.yml rebuilds it and fails if the committed copy differs. Dependabot
       bumps web/package.json but cannot regenerate the bundle, so any bump that
       changes the build output lands as a red PR that auto-merge will not touch.
 
@@ -32,13 +32,6 @@ dependabot_auto_merge:
   max_bump: minor
   delete_branch: true
 bulwark:
-  # On. This repository has no security scanning today, so gt's stage is an
-  # addition rather than a duplicate — unlike wardnet, where a second bulwark
-  # run would fight the existing coverage plumbing.
-  #
-  # Expect findings on the first run. Nothing gates on them: ci-gate is not the
-  # required check yet, so a red bulwark here is information about the
-  # repository, discovered while it is still free to be wrong.
   enabled: true
 pipeline:
   ci:
@@ -48,10 +41,6 @@ pipeline:
       - build
       - test
     merge_queue: false
-  # Off: cd-orchestration fires on v*.*.*, which release.yml already owns, and
-  # its verify-attestation runs with require: true — no tree carries an
-  # attestation yet, so the next release would go red on a pipeline that ships
-  # nothing. Turn on in the PR that moves release.yml into the cd-* stages.
   cd:
     enabled: false
     stages:
@@ -82,10 +71,16 @@ settings:
     merge_commit: false
     rebase: false
     delete_branch_on_merge: true
+    squash_title: pr_title
+    squash_message: blank
   branch_protection:
     branch: main
     required_approvals: 0
     require_up_to_date: false
+    dismiss_stale_reviews: true
+    require_thread_resolution: true
+    require_code_owner_review: false
+    require_last_push_approval: false
 files:
   - sync
   - dependabot-auto-merge

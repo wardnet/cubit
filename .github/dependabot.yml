@@ -40,7 +40,7 @@ updates:
     open-pull-requests-limit: 25
 
   # The dashboard bundle at internal/dashboard/assets/index.html is vendored,
-  # and ci.yml rebuilds it and fails if the committed copy differs. Dependabot
+  # and ci-build.yml rebuilds it and fails if the committed copy differs. Dependabot
   # bumps web/package.json but cannot regenerate the bundle, so any bump that
   # changes the build output lands as a red PR that auto-merge will not touch.
   #
