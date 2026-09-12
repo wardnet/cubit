@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/mod v0.38.0
+	golang.org/x/mod v0.41.0
 )
 
 require (
